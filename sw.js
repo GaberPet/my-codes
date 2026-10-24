@@ -1,6 +1,6 @@
 // My Codes service worker: keeps the app itself available offline and makes it installable.
-// Codes are never cached here; they come live from ntfy.
-const CACHE = 'mycodes-v1';
+// Codes are never cached here; they come live from your main account's mailbox.
+const CACHE = 'mycodes-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'Code.gs', 'icon-192.png', 'icon-512.png',
   'maskable-192.png', 'maskable-512.png', 'logo-96.png', 'favicon.png', 'apple-touch-icon.png'];
 

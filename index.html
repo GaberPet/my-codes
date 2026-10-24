@@ -143,9 +143,10 @@ nav button[aria-current="page"]{color:var(--accent)}
   <main id="tab-accounts" hidden>
     <h2>Your Gmail accounts</h2>
     <div id="acctList" style="display:grid;gap:8px"></div>
-    <h2>Add a Gmail account</h2>
+    <h2 id="addTitle">Add a Gmail account</h2>
     <div class="card">
-      <p class="muted">A tiny script runs in that Gmail account, on Google's servers. It checks for codes every minute, even when your phone is off. It only sends out the company name and the code, never your emails. Do this on a computer, with My Codes open there too: it takes about 3 minutes per account.</p>
+      <p class="muted">A tiny script runs in that Gmail account, on Google's servers. It checks for codes every minute, even when your phone is off. It only sends out the company name and the code, never your emails. Do this on a computer, with My Codes open there too.</p>
+      <p id="mainNote" class="card warn" style="margin:0">Your <b>first</b> account is your <b>main</b> account. Its script is also the mailbox this app reads codes from, so it needs one extra step (Deploy).</p>
       <ol class="steps">
         <li>
           <div style="display:grid;gap:8px">
@@ -162,9 +163,19 @@ nav button[aria-current="page"]{color:var(--accent)}
           </div>
         </li>
         <li>Open <a href="https://script.new" target="_blank" rel="noopener">script.new</a> while signed in to <b>that</b> Gmail account. Tip: on a computer with several Google accounts, use a private window and sign in to just that one.</li>
-        <li>Select everything in the editor, paste the script over it, and press <b>Save</b> (the disk icon). Name the project <b>My Codes</b>.</li>
-        <li>In the function menu at the top, pick <b>setup</b>, then press <b>Run</b>.</li>
-        <li>Press <b>Review permissions</b> and pick the account. Google warns: “Google hasn't verified this app”. That's normal for your own script: press <b>Advanced</b>, then <b>Go to My Codes (unsafe)</b>, then <b>Allow</b>.</li>
+        <li>Select everything in the editor, paste the script over it, and press <b>Ctrl+S</b> to save.</li>
+        <li class="main-only">
+          <div style="display:grid;gap:8px">
+            <span><b>Main account only:</b> press the blue <b>Deploy</b> button → <b>New deployment</b> → the gear next to “Select type” → <b>Web app</b>. Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>, then <b>Deploy</b> (press Authorize / Allow if asked). Copy the <b>Web app URL</b> and paste it here:</span>
+            <form class="hubForm actions" style="flex-wrap:nowrap">
+              <input class="hubInput" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Web app URL">
+              <button class="ghost" type="submit">Save</button>
+            </form>
+            <span class="muted" style="font-size:.86rem">“Anyone” is safe here: the web app only hands out encrypted codes, and only to someone who has your key.</span>
+          </div>
+        </li>
+        <li>In the function menu at the top, pick <b>setup</b>, then press <b>▷ Run</b>.</li>
+        <li>Press <b>Review permissions</b> and pick the account. Google warns: “Google hasn't verified this app”. That's normal for your own script: press <b>Advanced</b>, then <b>Go to … (unsafe)</b>, then <b>Allow</b>.</li>
         <li>Wait a few seconds. “My Codes connected” appears in Telegram and in this list. If Run shows an error in red, it tells you exactly what to fix.</li>
       </ol>
     </div>
@@ -184,9 +195,18 @@ nav button[aria-current="page"]{color:var(--accent)}
       <p class="muted" style="font-size:.86rem">Optional: BotFather → <code>/setuserpic</code> to give the bot the My Codes logo.</p>
     </div>
 
+    <h2>Mailbox link</h2>
+    <div class="card">
+      <p>The <b>Web app URL</b> of your main account's script. The app reads your codes from there.</p>
+      <form class="hubForm actions" style="flex-wrap:nowrap">
+        <input class="hubInput" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Web app URL">
+        <button class="ghost" type="submit">Save</button>
+      </form>
+    </div>
+
     <h2>Use on another device</h2>
     <div class="card">
-      <p>Scan this with your phone's camera to open My Codes there with your key already set. Then use Firefox's menu → <b>Add app to Home screen</b> (or <b>Install</b>) to get the app icon.</p>
+      <p>Scan this with your phone's camera to open My Codes there with your key and mailbox link already set. Then use Firefox's menu → <b>Add app to Home screen</b> (or <b>Install</b>) to get the app icon.</p>
       <div class="qr" id="qr" aria-label="QR code with your private link"></div>
       <div class="actions"><button class="ghost" id="copyLink">Copy private link</button></div>
     </div>
@@ -231,7 +251,7 @@ nav button[aria-current="page"]{color:var(--accent)}
 
 <script>
 "use strict";
-const SERVER = "https://ntfy.sh";
+const POLL_MS = 15000;      // how often the open app checks the mailbox
 const KEEP_DAYS = 7;
 const FRESH_MIN = 10;        // codes younger than this are highlighted
 const OLD_MIN = 60;          // codes older than this are shown smaller (they've probably expired)
@@ -244,12 +264,14 @@ const store = {
   del(k) { try { localStorage.removeItem("mc." + k); } catch (e) {} },
 };
 let key = store.get("key", "");
+let hub = store.get("hub", "");
 let msgs = store.get("msgs", []);
 let filter = store.get("filter", "all");
 let tab = "codes";
 let arrivedIds = new Set();
 
 const validKey = k => /^[A-Za-z0-9_-]{12,64}$/.test(k || "");
+const validHub = u => /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u || "");
 function newKey() {
   const abc = "abcdefghijkmnpqrstuvwxyz23456789";
   const bytes = crypto.getRandomValues(new Uint8Array(18));
@@ -260,23 +282,32 @@ function newKey() {
 function importKeyFromLink() {
   const m = location.hash.match(/key=([A-Za-z0-9_-]{12,64})/);
   if (!m) return false;
+  const h = location.hash.match(/hub=([^&]+)/);
   history.replaceState(null, "", location.pathname + location.search);
-  if (m[1] === key) return false;
-  if (key && !confirm("Replace the key on this device with the one from this link?")) return false;
-  setKey(m[1]);
-  return true;
+  let changed = false;
+  if (m[1] !== key) {
+    if (key && !confirm("Replace the key on this device with the one from this link?")) return false;
+    setKey(m[1]); changed = true;
+  }
+  const u = h ? decodeURIComponent(h[1]) : "";
+  if (validHub(u) && u !== hub) { setHub(u); changed = true; }
+  return changed;
 }
 importKeyFromLink();
 window.addEventListener("hashchange", () => { if (importKeyFromLink()) { tab = "codes"; render(); connect(); } });
 
 function setKey(k) {
-  if (key !== k) { msgs = []; store.set("msgs", msgs); store.del("lastId"); }
+  if (key !== k) { msgs = []; store.set("msgs", msgs); store.del("since"); }
   key = k; store.set("key", k);
+}
+function setHub(u) {
+  if (hub !== u) store.del("since");
+  hub = u; store.set("hub", u);
 }
 
 // ---------- encryption (matches the Gmail script) ----------
-// From the key we derive a relay channel name, an encryption key and a signing key.
-// The relay (ntfy.sh) only ever sees the channel name and scrambled, signed messages.
+// From the key we derive a channel id, an encryption key and a signing key. The mailbox
+// (your main account's web app) only ever holds and hands out scrambled, signed messages.
 const utf8 = s => new TextEncoder().encode(s);
 const hmacKey = raw => crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
 const sign = async (k, data) => new Uint8Array(await crypto.subtle.sign("HMAC", k, data));
@@ -315,14 +346,14 @@ async function getKeys() {
 
 // ---------- messages ----------
 async function normalize(m) {
-  if (!m || m.event !== "message" || typeof m.id !== "string") return null;
-  const d = await decrypt(m.message, await getKeys());
+  if (!m || typeof m.id !== "string" || typeof m.m !== "string") return null;
+  const d = await decrypt(m.m, await getKeys());
   if (!d || typeof d !== "object") return null;
   const kind = d.k === "code" ? "code" : d.k === "hello" ? "hello" : "";
   if (!kind) return null;
   const code = String(d.v || "").slice(0, 40);
   if (kind === "code" && !code) return null;
-  const sent = Number(d.t) ? Math.floor(Number(d.t) / 1000) : Number(m.time);
+  const sent = Number(d.t) ? Math.floor(Number(d.t) / 1000) : Math.floor(Number(m.r) / 1000);
   return {
     id: m.id, time: sent || Math.floor(Date.now() / 1000), kind,
     account: String(d.a || "").slice(0, 20),
@@ -333,7 +364,8 @@ async function normalize(m) {
   };
 }
 
-async function addMessages(list, live) {
+async function addMessages(list, liveList) {
+  const liveIds = new Set((liveList || []).map(x => x.id));
   let added = 0;
   const have = new Set(msgs.map(m => m.id));
   for (const raw of list) {
@@ -341,51 +373,56 @@ async function addMessages(list, live) {
     const m = await normalize(raw);
     if (!m || have.has(m.id)) continue;
     have.add(m.id); msgs.push(m); added++;
-    if (live && m.kind === "code") arrivedIds.add(m.id);
+    if (liveIds.has(raw.id) && m.kind === "code") arrivedIds.add(m.id);
   }
   if (!added) return;
   const cutoff = Date.now() / 1000 - KEEP_DAYS * 86400;
   msgs = msgs.filter(m => m.time >= cutoff).sort((a, b) => b.time - a.time).slice(0, 300);
   store.set("msgs", msgs);
-  store.set("lastId", msgs[0] ? msgs[0].id : "");
-  if (live && msgs.some(m => arrivedIds.has(m.id))) {
+  if (msgs.some(m => arrivedIds.has(m.id))) {
     try { navigator.vibrate && navigator.vibrate([60, 40, 60]); } catch (e) {}
   }
   render();
 }
 
-// ---------- live connection to ntfy ----------
-let es = null, retryTimer = null, retryDelay = 2000, queue = Promise.resolve();
+// ---------- reading the mailbox ----------
+let pollTimer = null, polling = false, failures = 0;
 function setLive(state, text) {
   $("live").className = "live " + state;
   $("liveText").textContent = text;
 }
-async function connect() {
+async function poll() {
+  clearTimeout(pollTimer);
   if (!validKey(key)) return;
-  disconnect();
-  const { topic } = await getKeys();
-  const lastId = store.get("lastId", "");
-  const since = lastId || "12h";
-  setLive("", "Connecting…");
-  es = new EventSource(`${SERVER}/${topic}/sse?since=${encodeURIComponent(since)}`);
-  es.onopen = () => { retryDelay = 2000; setLive("on", "Live"); };
-  es.onmessage = e => {
-    let m; try { m = JSON.parse(e.data); } catch (err) { return; }
-    queue = queue.then(() => addMessages([m], Number(m.time) > Date.now() / 1000 - 120));   // "new" = arrived in the last 2 minutes
-  };
-  es.onerror = () => {
-    setLive("off", navigator.onLine === false ? "Offline" : "Reconnecting…");
-    disconnect();
-    clearTimeout(retryTimer);
-    retryTimer = setTimeout(connect, retryDelay);
-    retryDelay = Math.min(retryDelay * 2, 60000);
-  };
+  if (!validHub(hub)) { setLive("off", "Needs setup"); return; }
+  if (polling) return;
+  polling = true;
+  try {
+    const { topic } = await getKeys();
+    const since = store.get("since", 0);
+    const res = await fetch(`${hub}?c=${topic}&since=${since}`, { cache: "no-store", credentials: "omit" });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "mailbox error");
+    const items = Array.isArray(data.items) ? data.items : [];
+    const now = Number(data.now) || Date.now();
+    await addMessages(items, since > 0 ? items.filter(x => now - Number(x.r) < 120000) : []);
+    const last = items.reduce((a, x) => Math.max(a, Number(x.r) || 0), since);
+    store.set("since", last);
+    failures = 0;
+    setLive("on", "Live");
+  } catch (e) {
+    failures++;
+    setLive("off", navigator.onLine === false ? "Offline" : String(e.message || "").includes("channel") ? "Wrong key" : "Can't reach mailbox");
+  } finally {
+    polling = false;
+    if (document.visibilityState === "visible") pollTimer = setTimeout(poll, failures ? Math.min(POLL_MS * failures, 120000) : POLL_MS);
+  }
 }
-function disconnect() { if (es) { es.onerror = null; es.close(); es = null; } }
+const connect = poll;
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") { render(); connect(); }
+  if (document.visibilityState === "visible") { render(); poll(); } else clearTimeout(pollTimer);
 });
-window.addEventListener("online", connect);
+window.addEventListener("online", poll);
 
 // ---------- render ----------
 function fmtCode(c) {
@@ -504,6 +541,11 @@ function render() {
   renderChips();
   if (tab === "codes") renderCodes();
   if (tab === "accounts") renderAccounts();
+  const isMain = !validHub(hub);
+  $("mainNote").hidden = !isMain;
+  $("addTitle").textContent = isMain ? "Add your main Gmail account" : "Add another Gmail account";
+  document.querySelectorAll(".main-only").forEach(li => { li.hidden = !isMain; });
+  document.querySelectorAll(".hubInput").forEach(i => { if (document.activeElement !== i) i.value = hub; });
   if (tab === "settings") renderSettings();
 }
 
@@ -533,28 +575,28 @@ async function copyText(text, card) {
 }
 
 // ---------- settings ----------
-const privateLink = () => location.origin + location.pathname + "#key=" + key;
+const privateLink = () => location.origin + location.pathname + "#key=" + key + (validHub(hub) ? "&hub=" + encodeURIComponent(hub) : "");
 let qrFor = "";
 function renderSettings() {
   $("keyBox").textContent = keyShown ? key : "••••••••••••••••••••";
   $("showKey").textContent = keyShown ? "Hide" : "Show";
-  if (qrFor !== key) drawQR();
+  if (qrFor !== privateLink()) drawQR();
 }
 let keyShown = false;
 $("showKey").onclick = () => { keyShown = !keyShown; renderSettings(); };
 $("copyKey").onclick = () => copyText(key);
 $("copyLink").onclick = () => copyText(privateLink());
-$("clearList").onclick = () => { if (confirm("Clear the code list on this device? (Codes from the last 12 hours come back on the next refresh.)")) { msgs = []; store.set("msgs", msgs); store.set("lastId", ""); render(); connect(); } };
+$("clearList").onclick = () => { if (confirm("Clear the code list on this device? (Codes from the last 2 days come back on the next refresh.)")) { msgs = []; store.set("msgs", msgs); store.del("since"); render(); poll(); } };
 $("forgetKey").onclick = () => {
   if (!confirm("Remove your key from this device? Your Gmail scripts keep working. You can add the key again later.")) return;
-  disconnect(); store.del("key"); store.del("msgs"); store.del("lastId"); key = ""; msgs = []; render();
+  clearTimeout(pollTimer); store.del("key"); store.del("msgs"); store.del("since"); key = ""; msgs = []; render();
 };
 
 function loadScript(src) {
   return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.append(s); });
 }
 async function drawQR() {
-  qrFor = key;
+  qrFor = privateLink();
   const box = $("qr");
   box.replaceChildren();
   try {
@@ -566,6 +608,13 @@ async function drawQR() {
     qrFor = "";
   }
 }
+
+document.querySelectorAll(".hubForm").forEach(f => f.onsubmit = e => {
+  e.preventDefault();
+  const v = f.querySelector("input").value.trim();
+  if (!validHub(v)) { toast("That's not a Web app URL. It starts with https://script.google.com/macros/s/ and ends with /exec"); return; }
+  setHub(v); toast("Mailbox link saved"); render(); poll();
+});
 
 // ---------- add-account script ----------
 async function buildScript() {
@@ -580,7 +629,8 @@ async function buildScript() {
   return src
     .replace("const MY_CODES_KEY = '';", `const MY_CODES_KEY = '${key}';`)
     .replace("const ACCOUNT_NAME = '';", `const ACCOUNT_NAME = '${nick}';`)
-    .replace("const TELEGRAM_BOT_TOKEN = '';", `const TELEGRAM_BOT_TOKEN = '${token}';`);
+    .replace("const TELEGRAM_BOT_TOKEN = '';", `const TELEGRAM_BOT_TOKEN = '${token}';`)
+    .replace("const HUB_URL = '';", `const HUB_URL = '${validHub(hub) ? hub : ""}';`);
 }
 $("copyScript").onclick = async () => {
   const s = await buildScript(); if (!s) return;

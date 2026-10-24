@@ -4,13 +4,17 @@
  * Runs on Google's servers in YOUR Gmail account. Every minute it looks at new mail,
  * finds verification / sign-in codes, and sends only the company + code to:
  *   - your Telegram (push notification with a Copy code button), and
- *   - your My Codes app (encrypted: the relay server only ever sees scrambled text).
+ *   - your My Codes app (encrypted, signed, and kept inside Google).
  * Your emails themselves never leave Gmail.
+ *
+ * Your MAIN Gmail account's script is also the app's mailbox ("hub"): it is published as a
+ * web app that hands out only encrypted codes. Other accounts send their codes to it.
  *
  * Setup (once per Gmail account, on a computer). The My Codes app (Accounts tab) walks you through it:
  *   1. Open https://script.new while signed in to that Gmail account.
  *   2. Delete what's there, paste this whole file, press Save.
- *   3. Check the four settings below, press Save.
+ *   3. Main account only: Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone),
+ *      then paste the Web app URL into My Codes.
  *   4. Pick "setup" in the function menu at the top and press Run. Press Allow.
  * Telegram and the app say "My Codes connected" when it works.
  *
@@ -22,9 +26,12 @@ const MY_CODES_KEY = '';          // Your key from the My Codes app (Settings �
 const ACCOUNT_NAME = '';          // A short nickname for this Gmail account, e.g. "personal"
 const TELEGRAM_BOT_TOKEN = '';    // From @BotFather in Telegram, looks like 123456789:AAH...  (leave empty for no Telegram)
 const TELEGRAM_DELETE_AFTER_MINUTES = 60;  // Delete code messages from Telegram after this long (0 = keep them)
+const HUB_URL = '';               // Leave EMPTY in your main account. Other accounts: your main account's Web app URL.
 // ====================
 
-const RELAY = 'https://ntfy.sh';                  // carries encrypted codes to the app
+const BOX_HOURS = 48;                             // the hub keeps encrypted codes this long
+const BOX_LIMIT = 100;                            // and at most this many
+const BOX_MAX_CHARS = 8500;                       // and only what fits in one stored value
 const LOOKBACK_MINUTES_FIRST_RUN = 30;            // on first run, also look at mail from the last 30 min
 const MAX_CODE_AGE_MINUTES = 30;                  // ignore code emails older than this (codes expire)
 const SEEN_LIMIT = 300;                           // how many processed message ids to remember
@@ -39,7 +46,7 @@ function setup() {
   ScriptApp.newTrigger('checkMail').timeBased().everyMinutes(1).create();
   const props = PropertiesService.getUserProperties();
   props.setProperty('lastCheck', String(Date.now() - LOOKBACK_MINUTES_FIRST_RUN * 60000));
-  sendToApp_({ k: 'hello', a: accountLabel_(), t: Date.now() });
+  sendToApp_({ k: 'hello', a: accountLabel_(), t: Date.now() });   // throws with a clear message if the hub can't be reached
   if (TELEGRAM_BOT_TOKEN) telegramSend_('✅ <b>My Codes connected</b>\nCodes from <b>' + html_(accountLabel_()) + '</b> will show up here.', null, false);
   checkMail();
   Logger.log('Done. My Codes now checks ' + Session.getActiveUser().getEmail() + ' every minute.');
@@ -109,7 +116,7 @@ function deliver_(f) {
     : '';
   try {
     sendToApp_({ k: 'code', c: f.company, v: f.code, a: accountLabel_(), t: f.when, u: mailUrl });
-  } catch (e) { Logger.log('App relay failed: ' + e); }
+  } catch (e) { Logger.log('App mailbox failed: ' + e); }
   if (TELEGRAM_BOT_TOKEN) {
     // The notification preview shows the first line: just the code.
     const text = '<code>' + html_(plain) + '</code>\n' + html_(f.company) + ' · ' + html_(accountLabel_());
@@ -184,24 +191,74 @@ function html_(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ---------- encrypted relay to the app ----------
-// The app and this script both derive, from your key: a channel name, an encryption key and a
-// signing key. Messages are encrypted (HMAC-SHA256 counter-mode stream) and signed (HMAC-SHA256),
-// so the relay server only stores scrambled text that expires after 12 hours.
+// ---------- encrypted mailbox for the app ----------
+// The app and this script both derive, from your key: a channel id, an encryption key and a
+// signing key. Messages are encrypted (HMAC-SHA256 counter-mode stream) and signed (HMAC-SHA256).
+// The hub (main account's web app) only accepts correctly signed messages and only hands out
+// encrypted ones, to requests that know the channel id.
 
 function sendToApp_(obj) {
   const keys = keys_();
   const body = encrypt_(JSON.stringify(obj), keys);
+  if (!HUB_URL) { boxAdd_(body); return; }
+  let lastError = '';
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = UrlFetchApp.fetch(RELAY + '/' + keys.topic, {
-      method: 'post', contentType: 'text/plain', payload: body, muteHttpExceptions: true,
-      headers: { 'X-Tags': 'lock', 'X-Title': 'My Codes' },
-    });
-    const status = res.getResponseCode();
-    if (status < 300) return;
-    Logger.log('Relay error ' + status + ': ' + res.getContentText());
-    if (status !== 429 && status < 500) return;
+    try {
+      const res = UrlFetchApp.fetch(HUB_URL + '?c=' + keys.topic, {
+        method: 'post', contentType: 'text/plain', payload: body, muteHttpExceptions: true, followRedirects: true,
+      });
+      let data = {};
+      try { data = JSON.parse(res.getContentText()); } catch (e) {}
+      if (data.ok) return;
+      lastError = data.error || ('HTTP ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 200));
+    } catch (e) { lastError = String(e); }
     Utilities.sleep(1500 * (attempt + 1));
+  }
+  throw new Error('Could not reach your main account (HUB_URL): ' + lastError +
+    '. Check HUB_URL is the Web app URL of your main account (ends in /exec) and that it is deployed with access "Anyone".');
+}
+
+/** The app reads codes here. Only encrypted messages ever leave. */
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.c !== keys_().topic) return json_({ ok: false, error: 'wrong channel' });
+  const since = Number(p.since) || 0;
+  const items = boxRead_().filter(x => x.r > since);
+  return json_({ ok: true, now: Date.now(), items: items });
+}
+
+/** Your other Gmail accounts send their codes here. */
+function doPost(e) {
+  const p = (e && e.parameter) || {};
+  if (p.c !== keys_().topic) return json_({ ok: false, error: 'wrong channel' });
+  const body = e && e.postData ? String(e.postData.contents || '') : '';
+  if (body.length > 4000 || !verify_(body, keys_())) return json_({ ok: false, error: 'bad signature (different key?)' });
+  boxAdd_(body);
+  return json_({ ok: true });
+}
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function boxRead_() {
+  return JSON.parse(PropertiesService.getScriptProperties().getProperty('box') || '[]');
+}
+
+function boxAdd_(m) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const cutoff = Date.now() - BOX_HOURS * 3600000;
+    const list = boxRead_().filter(x => x.r > cutoff && x.m !== m);
+    let r = Date.now();
+    if (list.length && list[list.length - 1].r >= r) r = list[list.length - 1].r + 1;   // strictly increasing
+    list.push({ id: Utilities.getUuid().slice(0, 13), r: r, m: m });
+    let kept = list.slice(-BOX_LIMIT), json = JSON.stringify(kept);
+    while (json.length > BOX_MAX_CHARS && kept.length > 1) { kept = kept.slice(1); json = JSON.stringify(kept); }  // Google allows ~9 KB per value
+    PropertiesService.getScriptProperties().setProperty('box', json);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -230,11 +287,24 @@ function encrypt_(text, keys, fixedNonce) {
   return '1.' + b64_(nonce) + '.' + b64_(out) + '.' + b64_(tag);
 }
 
+function verify_(str, keys) {
+  const p = String(str).split('.');
+  if (p.length !== 4 || p[0] !== '1') return false;
+  let nonce, ct, tag;
+  try { nonce = unb64_(p[1]); ct = unb64_(p[2]); tag = unb64_(p[3]); } catch (e) { return false; }
+  if (nonce.length !== 12 || tag.length !== 16) return false;
+  const check = hmac_(keys.mac, nonce.concat(ct)).slice(0, 16);
+  let diff = 0;
+  for (let i = 0; i < 16; i++) diff |= check[i] ^ tag[i];
+  return diff === 0;
+}
+
 // Byte helpers. Google's Utilities use signed bytes (-128..127); everything here uses 0..255.
 function bytes_(s) { return Utilities.newBlob(String(s)).getBytes().map(b => b & 255); }
 function signed_(arr) { return arr.map(b => (b > 127 ? b - 256 : b)); }
 function hmac_(key, data) { return Utilities.computeHmacSha256Signature(signed_(data), signed_(key)).map(b => b & 255); }
 function b64_(arr) { return Utilities.base64EncodeWebSafe(signed_(arr)).replace(/=+$/, ''); }
+function unb64_(s) { s = String(s); while (s.length % 4) s += '='; return Utilities.base64DecodeWebSafe(s).map(b => b & 255); }
 function randomBytes_(n) {
   const seed = bytes_(Utilities.getUuid() + Date.now() + Math.random());
   return hmac_(seed, bytes_(String(Math.random()))).slice(0, n);
@@ -260,6 +330,7 @@ function checkConfig_() {
   if (!/^[A-Za-z0-9_-]{12,64}$/.test(MY_CODES_KEY)) throw new Error('Paste your key from the My Codes app into MY_CODES_KEY (top of this file), then Save.');
   if (!ACCOUNT_NAME.trim()) throw new Error('Type a short nickname for this account into ACCOUNT_NAME (top of this file), then Save.');
   if (TELEGRAM_BOT_TOKEN && !/^\d+:[A-Za-z0-9_-]{30,}$/.test(TELEGRAM_BOT_TOKEN.trim())) throw new Error('TELEGRAM_BOT_TOKEN doesn\'t look right. Copy it again from @BotFather.');
+  if (HUB_URL && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(HUB_URL)) throw new Error('HUB_URL must be your main account\'s Web app URL (https://script.google.com/macros/s/.../exec), or empty in the main account.');
 }
 
 function accountLabel_() {
