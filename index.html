@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>My Codes</title>
+<meta name="description" content="Your verification codes from Gmail: just the company and the code.">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+<style>
+/* Layout: phone app. Sticky header (logo, title, live status, account chips), one column of code cards,
+   bottom tab bar with three tabs (Codes, Accounts, Settings). Same look as Claude Notes: black, white, orange. */
+:root{
+  --bg:#0a0a0a; --surface:#151515; --raised:#1e1e1e; --fg:#f5f5f3; --muted:#9b9b96; --line:#2a2a2a;
+  --accent:#ff7a1a; --accent-soft:#2b1a0c; --on-accent:#0a0a0a; --danger:#ff5f52; --ok:#5fd38d;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--body);-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+.wrap{max-width:640px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:110px}
+header{position:sticky;top:0;z-index:2;background:var(--bg);padding-top:max(14px,env(safe-area-inset-top,0px));padding-bottom:10px;display:grid;gap:10px;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{width:40px;height:40px;border-radius:22%;flex:none}
+h1{font:700 1.6rem/1.1 var(--display);margin:0;letter-spacing:-.01em}
+h1 .o{color:var(--accent)}
+h2{font:700 1.25rem/1.2 var(--display);margin:6px 0 0}
+.live{display:flex;align-items:center;gap:6px;font:500 .76rem var(--mono);color:var(--muted);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live.on .dot{background:var(--ok);box-shadow:0 0 0 3px #5fd38d22}
+.live.off .dot{background:var(--danger)}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chip{flex:none;font:500 .8rem var(--body);border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 12px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button,.btn{font:600 .9rem var(--body);cursor:pointer;border-radius:10px;border:1px solid transparent;padding:10px 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.primary{background:var(--accent);color:var(--on-accent)}
+.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+.small{padding:5px 10px;font-size:.8rem}
+.wide{width:100%}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%}
+main{display:grid;gap:10px;margin-top:14px}
+.sect{font:600 .74rem var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:10px 2px 0}
+.muted{color:var(--muted)}
+
+/* Code cards */
+.code-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px 12px;display:grid;gap:4px;cursor:pointer;position:relative;min-width:0}
+.code-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.code-card.fresh{border:2px solid var(--accent);padding:13px 15px 11px}
+.code-card .row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.company{font:700 1.15rem/1.25 var(--display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.code{font:700 clamp(2.3rem,12vw,3.3rem)/1.1 var(--mono);letter-spacing:.06em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--fg)}
+.code-card.fresh .code{color:var(--accent)}
+.code-card.old .code{color:var(--muted);font-size:clamp(1.6rem,8vw,2.1rem)}
+.meta{display:flex;gap:8px;align-items:center;font:500 .74rem var(--mono);color:var(--muted);flex-wrap:wrap}
+.tag{background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:1px 7px;text-transform:lowercase}
+.new{background:var(--accent);color:var(--on-accent);border-radius:6px;padding:1px 7px;font-weight:700}
+.copy{background:var(--accent-soft);color:var(--accent);border:1px solid transparent;padding:7px 12px;font-size:.82rem;border-radius:9px;flex:none}
+.copied .copy{background:var(--ok);color:var(--on-accent)}
+.open-mail{font:500 .74rem var(--mono);color:var(--muted);text-decoration:underline;text-underline-offset:3px}
+
+/* Panels */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:10px;min-width:0}
+.card p{margin:0}
+.steps{margin:0;padding-left:22px;display:grid;gap:8px}
+.steps li::marker{color:var(--accent);font-weight:700}
+.keybox{font:600 1rem var(--mono);background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere;letter-spacing:.03em}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.acct{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.acct b{font:600 1rem var(--body)}
+.qr{background:#fff;border-radius:12px;padding:14px;justify-self:center;line-height:0}
+.qr img,.qr canvas{width:220px;height:220px;image-rendering:pixelated}
+.empty{display:grid;gap:8px;place-items:center;text-align:center;padding:48px 16px;color:var(--muted)}
+.empty img{width:84px;height:84px;border-radius:22%;opacity:.9}
+.empty b{color:var(--fg);font:700 1.15rem var(--display)}
+.warn{border-color:var(--accent)}
+code{font:.86rem var(--mono);background:var(--raised);color:var(--accent);padding:1px 5px;border-radius:5px}
+a{color:var(--accent)}
+
+/* Tab bar */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:3;background:var(--bg);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav .tabs{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr)}
+nav button{background:none;color:var(--muted);border:0;border-radius:0;padding:10px 4px 12px;display:grid;gap:2px;justify-items:center;font:600 .74rem var(--body)}
+nav button svg{width:24px;height:24px}
+nav button[aria-current="page"]{color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);font-weight:600;padding:10px 16px;border-radius:999px;z-index:5;max-width:calc(100% - 32px);text-align:center;box-shadow:0 6px 24px #0008}
+@media (prefers-reduced-motion:no-preference){
+  .code-card.arrive{animation:arrive .5s ease-out}
+  @keyframes arrive{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="top">
+      <div class="brand">
+        <img class="logo" src="logo-96.png" alt="">
+        <h1>My <span class="o">Codes</span></h1>
+      </div>
+      <div class="live" id="live" role="status"><span class="dot"></span><span id="liveText">Starting…</span></div>
+    </div>
+    <div class="chips" id="chips" role="group" aria-label="Filter by account" hidden></div>
+  </header>
+
+  <!-- Welcome / first-time setup -->
+  <main id="welcome" hidden>
+    <div class="empty" style="padding-bottom:8px">
+      <img src="icon-192.png" alt="">
+      <b>Welcome to My Codes</b>
+      <span>Your sign-in codes from Gmail, big and clear: just the company and the code.</span>
+    </div>
+    <div class="card">
+      <p><b>New here?</b> Best done on your computer first. Create your private key: it links your Gmail accounts to this app. Then scan the QR code in Settings with your phone.</p>
+      <button class="primary wide" id="createKey">Create my key</button>
+    </div>
+    <div class="card">
+      <p><b>Already set up on another device?</b> Scan its QR code (Settings → Use on another device), or paste your key here.</p>
+      <form id="pasteForm" class="actions" style="flex-wrap:nowrap">
+        <input id="pasteKey" placeholder="Paste your key" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your key">
+        <button class="ghost" type="submit">Use</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Codes -->
+  <main id="tab-codes" hidden>
+    <div id="codeList" style="display:grid;gap:10px"></div>
+  </main>
+
+  <!-- Accounts -->
+  <main id="tab-accounts" hidden>
+    <h2>Your Gmail accounts</h2>
+    <div id="acctList" style="display:grid;gap:8px"></div>
+    <h2>Add a Gmail account</h2>
+    <div class="card">
+      <p class="muted">A tiny script runs in that Gmail account, on Google's servers. It checks for codes every minute, even when your phone is off. It only sends out the company name and the code, never your emails. Do this on a computer, with My Codes open there too: it takes about 3 minutes per account.</p>
+      <ol class="steps">
+        <li>
+          <div style="display:grid;gap:8px">
+            <span>Give the account a short nickname:</span>
+            <input id="nick" placeholder="e.g. personal, school, gaming" maxlength="20" autocomplete="off">
+          </div>
+        </li>
+        <li>
+          <div style="display:grid;gap:8px">
+            <span>Paste your Telegram bot token (see Settings → Telegram). It's only used to fill in the script, and isn't saved.</span>
+            <input id="tgToken" placeholder="123456789:AAH…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Telegram bot token">
+            <span>Copy the script. Your key, nickname and token are already filled in.</span>
+            <div class="actions"><button class="primary" id="copyScript">Copy script</button><button class="ghost" id="dlScript">Download instead</button></div>
+          </div>
+        </li>
+        <li>Open <a href="https://script.new" target="_blank" rel="noopener">script.new</a> while signed in to <b>that</b> Gmail account. Tip: on a computer with several Google accounts, use a private window and sign in to just that one.</li>
+        <li>Select everything in the editor, paste the script over it, and press <b>Save</b> (the disk icon). Name the project <b>My Codes</b>.</li>
+        <li>In the function menu at the top, pick <b>setup</b>, then press <b>Run</b>.</li>
+        <li>Press <b>Review permissions</b> and pick the account. Google warns: “Google hasn't verified this app”. That's normal for your own script: press <b>Advanced</b>, then <b>Go to My Codes (unsafe)</b>, then <b>Allow</b>.</li>
+        <li>Wait a few seconds. “My Codes connected” appears in Telegram and in this list. If Run shows an error in red, it tells you exactly what to fix.</li>
+      </ol>
+    </div>
+  </main>
+
+  <!-- Settings -->
+  <main id="tab-settings" hidden>
+    <h2>Telegram notifications</h2>
+    <div class="card">
+      <p>Push notifications come from your own private Telegram bot. Each one shows the code and the company, with a <b>Copy code</b> button. Code messages delete themselves after 1 hour.</p>
+      <ol class="steps">
+        <li>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> and send <code>/newbot</code>.</li>
+        <li>Name it <b>My Codes</b>. For the username, pick anything ending in <code>bot</code>, e.g. <code>gaber_mycodes_bot</code>.</li>
+        <li>BotFather replies with a <b>token</b> (looks like <code>123456789:AAH…</code>). Keep it secret; you paste it when adding a Gmail account.</li>
+        <li>Tap the link to your new bot and press <b>Start</b>. The scripts need that to find your chat.</li>
+      </ol>
+      <p class="muted" style="font-size:.86rem">Optional: BotFather → <code>/setuserpic</code> to give the bot the My Codes logo.</p>
+    </div>
+
+    <h2>Use on another device</h2>
+    <div class="card">
+      <p>Scan this with your phone's camera to open My Codes there with your key already set. Then use Firefox's menu → <b>Add app to Home screen</b> (or <b>Install</b>) to get the app icon.</p>
+      <div class="qr" id="qr" aria-label="QR code with your private link"></div>
+      <div class="actions"><button class="ghost" id="copyLink">Copy private link</button></div>
+    </div>
+
+    <h2>Your key</h2>
+    <div class="card">
+      <div class="keybox" id="keyBox">••••••••••••••••••••</div>
+      <div class="actions">
+        <button class="ghost small" id="showKey">Show</button>
+        <button class="ghost small" id="copyKey">Copy</button>
+      </div>
+      <p class="muted" style="font-size:.86rem">Anyone with your key can see your codes. Don't share it or put it in notes.</p>
+    </div>
+
+    <h2>Clean up</h2>
+    <div class="card">
+      <div class="actions">
+        <button class="ghost" id="clearList">Clear code list on this device</button>
+        <button class="danger" id="forgetKey">Remove key from this device</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<nav aria-label="Sections" id="nav" hidden>
+  <div class="tabs">
+    <button data-tab="codes" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 12h.01M11 12h.01M15 12h.01"/></svg>
+      Codes
+    </button>
+    <button data-tab="accounts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+      Accounts
+    </button>
+    <button data-tab="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      Settings
+    </button>
+  </div>
+</nav>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+const SERVER = "https://ntfy.sh";
+const KEEP_DAYS = 7;
+const FRESH_MIN = 10;        // codes younger than this are highlighted
+const OLD_MIN = 60;          // codes older than this are shown smaller (they've probably expired)
+const $ = id => document.getElementById(id);
+
+// ---------- storage (per device) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("mc." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("mc." + k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem("mc." + k); } catch (e) {} },
+};
+let key = store.get("key", "");
+let msgs = store.get("msgs", []);
+let filter = store.get("filter", "all");
+let tab = "codes";
+let arrivedIds = new Set();
+
+const validKey = k => /^[A-Za-z0-9_-]{12,64}$/.test(k || "");
+function newKey() {
+  const abc = "abcdefghijkmnpqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  return "mc" + Array.from(bytes, b => abc[b % 32]).join("");
+}
+
+// ---------- key from a private link (#key=...) ----------
+function importKeyFromLink() {
+  const m = location.hash.match(/key=([A-Za-z0-9_-]{12,64})/);
+  if (!m) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (m[1] === key) return false;
+  if (key && !confirm("Replace the key on this device with the one from this link?")) return false;
+  setKey(m[1]);
+  return true;
+}
+importKeyFromLink();
+window.addEventListener("hashchange", () => { if (importKeyFromLink()) { tab = "codes"; render(); connect(); } });
+
+function setKey(k) {
+  if (key !== k) { msgs = []; store.set("msgs", msgs); store.del("lastId"); }
+  key = k; store.set("key", k);
+}
+
+// ---------- encryption (matches the Gmail script) ----------
+// From the key we derive a relay channel name, an encryption key and a signing key.
+// The relay (ntfy.sh) only ever sees the channel name and scrambled, signed messages.
+const utf8 = s => new TextEncoder().encode(s);
+const hmacKey = raw => crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+const sign = async (k, data) => new Uint8Array(await crypto.subtle.sign("HMAC", k, data));
+const join = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
+function unb64(s) { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+async function deriveKeys(k) {
+  const base = await hmacKey(utf8(k));
+  const t = await sign(base, utf8("my-codes topic"));
+  return {
+    topic: "mc" + Array.from(t.slice(0, 12), b => b.toString(16).padStart(2, "0")).join(""),
+    enc: await hmacKey(await sign(base, utf8("my-codes enc"))),
+    mac: await hmacKey(await sign(base, utf8("my-codes mac"))),
+  };
+}
+async function decrypt(str, keys) {
+  const p = String(str || "").split(".");
+  if (p.length !== 4 || p[0] !== "1") return null;
+  let nonce, ct, tag;
+  try { nonce = unb64(p[1]); ct = unb64(p[2]); tag = unb64(p[3]); } catch (e) { return null; }
+  if (nonce.length !== 12 || tag.length !== 16) return null;
+  const check = await sign(keys.mac, join(nonce, ct));
+  let diff = 0; for (let i = 0; i < 16; i++) diff |= check[i] ^ tag[i];
+  if (diff) return null;                                   // not from your scripts
+  const out = new Uint8Array(ct.length);
+  for (let block = 0, pos = 0; pos < ct.length; block++) {
+    const stream = await sign(keys.enc, join(nonce, new Uint8Array([0, 0, (block >> 8) & 255, block & 255])));
+    for (let j = 0; j < 32 && pos < ct.length; j++, pos++) out[pos] = ct[pos] ^ stream[j];
+  }
+  try { return JSON.parse(new TextDecoder().decode(out)); } catch (e) { return null; }
+}
+let keys = null, keysFor = "";
+async function getKeys() {
+  if (keysFor !== key) { keys = await deriveKeys(key); keysFor = key; }
+  return keys;
+}
+
+// ---------- messages ----------
+async function normalize(m) {
+  if (!m || m.event !== "message" || typeof m.id !== "string") return null;
+  const d = await decrypt(m.message, await getKeys());
+  if (!d || typeof d !== "object") return null;
+  const kind = d.k === "code" ? "code" : d.k === "hello" ? "hello" : "";
+  if (!kind) return null;
+  const code = String(d.v || "").slice(0, 40);
+  if (kind === "code" && !code) return null;
+  const sent = Number(d.t) ? Math.floor(Number(d.t) / 1000) : Number(m.time);
+  return {
+    id: m.id, time: sent || Math.floor(Date.now() / 1000), kind,
+    account: String(d.a || "").slice(0, 20),
+    title: String(d.c || "Code").slice(0, 60),
+    message: code,
+    copy: code.replace(/[\s-]/g, ""),
+    click: typeof d.u === "string" && d.u.startsWith("https://mail.google.com/") ? d.u : "",
+  };
+}
+
+async function addMessages(list, live) {
+  let added = 0;
+  const have = new Set(msgs.map(m => m.id));
+  for (const raw of list) {
+    if (!raw || have.has(raw.id)) continue;
+    const m = await normalize(raw);
+    if (!m || have.has(m.id)) continue;
+    have.add(m.id); msgs.push(m); added++;
+    if (live && m.kind === "code") arrivedIds.add(m.id);
+  }
+  if (!added) return;
+  const cutoff = Date.now() / 1000 - KEEP_DAYS * 86400;
+  msgs = msgs.filter(m => m.time >= cutoff).sort((a, b) => b.time - a.time).slice(0, 300);
+  store.set("msgs", msgs);
+  store.set("lastId", msgs[0] ? msgs[0].id : "");
+  if (live && msgs.some(m => arrivedIds.has(m.id))) {
+    try { navigator.vibrate && navigator.vibrate([60, 40, 60]); } catch (e) {}
+  }
+  render();
+}
+
+// ---------- live connection to ntfy ----------
+let es = null, retryTimer = null, retryDelay = 2000, queue = Promise.resolve();
+function setLive(state, text) {
+  $("live").className = "live " + state;
+  $("liveText").textContent = text;
+}
+async function connect() {
+  if (!validKey(key)) return;
+  disconnect();
+  const { topic } = await getKeys();
+  const lastId = store.get("lastId", "");
+  const since = lastId || "12h";
+  setLive("", "Connecting…");
+  es = new EventSource(`${SERVER}/${topic}/sse?since=${encodeURIComponent(since)}`);
+  es.onopen = () => { retryDelay = 2000; setLive("on", "Live"); };
+  es.onmessage = e => {
+    let m; try { m = JSON.parse(e.data); } catch (err) { return; }
+    queue = queue.then(() => addMessages([m], Number(m.time) > Date.now() / 1000 - 120));   // "new" = arrived in the last 2 minutes
+  };
+  es.onerror = () => {
+    setLive("off", navigator.onLine === false ? "Offline" : "Reconnecting…");
+    disconnect();
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(connect, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 60000);
+  };
+}
+function disconnect() { if (es) { es.onerror = null; es.close(); es = null; } }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { render(); connect(); }
+});
+window.addEventListener("online", connect);
+
+// ---------- render ----------
+function fmtCode(c) {
+  c = String(c).trim();
+  if (/^\d{6}$/.test(c)) return c.slice(0, 3) + " " + c.slice(3);
+  if (/^\d{8}$/.test(c)) return c.slice(0, 4) + " " + c.slice(4);
+  return c;
+}
+function ago(t) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - t));
+  if (s < 45) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+function clock(t) { return new Date(t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function accounts() {
+  const map = new Map();
+  msgs.forEach(m => {
+    if (!m.account) return;
+    const a = map.get(m.account) || { name: m.account, last: 0, codes: 0, connected: 0 };
+    a.last = Math.max(a.last, m.time);
+    if (m.kind === "code") a.codes++;
+    if (m.kind === "hello") a.connected = Math.max(a.connected, m.time);
+    map.set(m.account, a);
+  });
+  return [...map.values()].sort((a, b) => b.last - a.last);
+}
+
+function renderChips() {
+  const accts = accounts().map(a => a.name);
+  const chips = $("chips");
+  chips.hidden = tab !== "codes" || accts.length < 2;
+  if (filter !== "all" && !accts.includes(filter)) filter = "all";
+  chips.replaceChildren(...["all", ...accts].map(name => {
+    const b = el("button", "chip", name === "all" ? "All" : name);
+    b.setAttribute("aria-pressed", String(filter === name));
+    b.onclick = () => { filter = name; store.set("filter", filter); render(); };
+    return b;
+  }));
+}
+
+function renderCodes() {
+  const list = $("codeList");
+  const codes = msgs.filter(m => m.kind === "code" && (filter === "all" || m.account === filter));
+  if (!codes.length) {
+    const empty = el("div", "empty");
+    const img = el("img"); img.src = "icon-192.png"; img.alt = "";
+    empty.append(img, el("b", null, "No codes yet"));
+    const hasAccts = accounts().length > 0;
+    empty.append(el("span", null, hasAccts
+      ? "When a company emails you a code, it shows up here within about a minute."
+      : "Connect a Gmail account first. Open the Accounts tab to see how."));
+    if (!hasAccts) { const b = el("button", "primary", "Connect Gmail"); b.onclick = () => go("accounts"); empty.append(b); }
+    list.replaceChildren(empty);
+    return;
+  }
+  const now = Date.now() / 1000;
+  const out = [];
+  let shownOlder = false;
+  codes.forEach((m, i) => {
+    const ageMin = (now - m.time) / 60;
+    if (ageMin >= OLD_MIN && !shownOlder) { out.push(el("div", "sect", "Earlier")); shownOlder = true; }
+    const card = el("div", "code-card" + (ageMin < FRESH_MIN ? " fresh" : ageMin >= OLD_MIN ? " old" : "") + (arrivedIds.has(m.id) ? " arrive" : ""));
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); card.click(); } };
+    card.setAttribute("aria-label", `${m.title} code ${m.message}. Tap to copy.`);
+    const r1 = el("div", "row");
+    r1.append(el("span", "company", m.title));
+    const cp = el("span", "copy", "Copy"); r1.append(cp);
+    const code = el("div", "code", fmtCode(m.message));
+    const meta = el("div", "meta");
+    if (ageMin < FRESH_MIN) meta.append(el("span", "new", "NEW"));
+    meta.append(el("span", null, `${ago(m.time)} · ${clock(m.time)}`));
+    if (m.account) meta.append(el("span", "tag", m.account));
+    if (m.click) {
+      const a = el("a", "open-mail", "open email"); a.href = m.click; a.target = "_blank"; a.rel = "noopener";
+      a.onclick = e => e.stopPropagation();
+      meta.append(a);
+    }
+    card.append(r1, code, meta);
+    card.onclick = () => copyText(m.copy || m.message.replace(/[\s-]/g, ""), card);
+    out.push(card);
+  });
+  list.replaceChildren(...out);
+  arrivedIds.clear();
+}
+
+function renderAccounts() {
+  const list = $("acctList");
+  const accts = accounts();
+  if (!accts.length) {
+    list.replaceChildren(el("div", "card", "No accounts connected yet. Follow the steps below for each Gmail account."));
+    return;
+  }
+  list.replaceChildren(...accts.map(a => {
+    const c = el("div", "card acct");
+    const left = el("div");
+    left.append(el("b", null, a.name), el("div", "meta", `${a.codes} code${a.codes === 1 ? "" : "s"} · last activity ${ago(a.last)}`));
+    c.append(left, el("span", "tag", "connected"));
+    return c;
+  }));
+}
+
+function render() {
+  const hasKey = validKey(key);
+  $("welcome").hidden = hasKey;
+  $("nav").hidden = !hasKey;
+  $("live").hidden = !hasKey;
+  ["codes", "accounts", "settings"].forEach(t => { $("tab-" + t).hidden = !hasKey || tab !== t; });
+  document.querySelectorAll("nav button").forEach(b => { if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  if (!hasKey) { $("chips").hidden = true; return; }
+  renderChips();
+  if (tab === "codes") renderCodes();
+  if (tab === "accounts") renderAccounts();
+  if (tab === "settings") renderSettings();
+}
+
+function go(t) { tab = t; window.scrollTo(0, 0); render(); }
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.tab));
+
+// ---------- copy / toast ----------
+let toastTimer;
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 1800);
+}
+async function copyText(text, card) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (e) {
+    const ta = el("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.append(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch (e2) {}
+    ta.remove();
+  }
+  toast(ok ? "Copied " + text : "Couldn't copy. Long-press the code instead.");
+  if (ok && card) {
+    card.classList.add("copied"); const cp = card.querySelector(".copy"); if (cp) cp.textContent = "Copied";
+    setTimeout(() => { card.classList.remove("copied"); if (cp) cp.textContent = "Copy"; }, 1500);
+  }
+}
+
+// ---------- settings ----------
+const privateLink = () => location.origin + location.pathname + "#key=" + key;
+let qrFor = "";
+function renderSettings() {
+  $("keyBox").textContent = keyShown ? key : "••••••••••••••••••••";
+  $("showKey").textContent = keyShown ? "Hide" : "Show";
+  if (qrFor !== key) drawQR();
+}
+let keyShown = false;
+$("showKey").onclick = () => { keyShown = !keyShown; renderSettings(); };
+$("copyKey").onclick = () => copyText(key);
+$("copyLink").onclick = () => copyText(privateLink());
+$("clearList").onclick = () => { if (confirm("Clear the code list on this device? (Codes from the last 12 hours come back on the next refresh.)")) { msgs = []; store.set("msgs", msgs); store.set("lastId", ""); render(); connect(); } };
+$("forgetKey").onclick = () => {
+  if (!confirm("Remove your key from this device? Your Gmail scripts keep working. You can add the key again later.")) return;
+  disconnect(); store.del("key"); store.del("msgs"); store.del("lastId"); key = ""; msgs = []; render();
+};
+
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.append(s); });
+}
+async function drawQR() {
+  qrFor = key;
+  const box = $("qr");
+  box.replaceChildren();
+  try {
+    if (!window.QRCode) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js");
+    new QRCode(box, { text: privateLink(), width: 440, height: 440, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+    box.removeAttribute("title");
+  } catch (e) {
+    box.replaceChildren(el("span", "muted", "QR code couldn't load. Use Copy private link instead."));
+    qrFor = "";
+  }
+}
+
+// ---------- add-account script ----------
+async function buildScript() {
+  const nick = ($("nick").value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 20);
+  if (!nick) { $("nick").focus(); toast("Type a nickname first"); return null; }
+  const token = ($("tgToken").value || "").trim();
+  if (token && !/^\d+:[A-Za-z0-9_-]{30,}$/.test(token)) { $("tgToken").focus(); toast("That Telegram token doesn't look right"); return null; }
+  if (!token && !confirm("No Telegram token: codes will show in the app, but without push notifications. Continue?")) return null;
+  let src;
+  try { src = await (await fetch("Code.gs", { cache: "no-cache" })).text(); }
+  catch (e) { toast("Couldn't load the script. Check your connection."); return null; }
+  return src
+    .replace("const MY_CODES_KEY = '';", `const MY_CODES_KEY = '${key}';`)
+    .replace("const ACCOUNT_NAME = '';", `const ACCOUNT_NAME = '${nick}';`)
+    .replace("const TELEGRAM_BOT_TOKEN = '';", `const TELEGRAM_BOT_TOKEN = '${token}';`);
+}
+$("copyScript").onclick = async () => {
+  const s = await buildScript(); if (!s) return;
+  try { await navigator.clipboard.writeText(s); toast("Script copied. Now open script.new"); }
+  catch (e) { toast("Couldn't copy. Use Download instead."); }
+};
+$("dlScript").onclick = async () => {
+  const s = await buildScript(); if (!s) return;
+  const a = el("a"); a.href = URL.createObjectURL(new Blob([s], { type: "text/plain" })); a.download = "My Codes script.gs";
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+
+// ---------- welcome ----------
+$("createKey").onclick = () => { setKey(newKey()); tab = "settings"; render(); connect(); toast("Key created"); };
+$("pasteForm").onsubmit = e => {
+  e.preventDefault();
+  const v = $("pasteKey").value.trim().replace(/^.*#key=/, "");
+  if (!validKey(v)) { toast("That doesn't look like a My Codes key"); return; }
+  setKey(v); tab = "codes"; render(); connect();
+};
+
+// Keep "2 min ago" labels and the NEW highlight current.
+setInterval(() => { if (document.visibilityState === "visible" && tab === "codes") renderCodes(); }, 30000);
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+render();
+connect();
+</script>
+</body>
+</html>
